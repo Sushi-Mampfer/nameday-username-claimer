@@ -1,6 +1,6 @@
 from re import search
 from typing import NamedTuple, Union
-
+import time
 import requests
 from requests import Response
 from requests import Session
@@ -151,10 +151,16 @@ class Microsoft:
 
         resp = self.client.get(profile, headers=headers).json()
 
-        return UserProfile(
-            username=resp.get("name"),
-            uuid=resp.get("id")
-        )
+        try:
+            return UserProfile(
+                username=resp.get("name"),
+                uuid=resp.get("id")
+            )
+        except:
+            return UserProfile(
+                username=None,
+                uuid=None
+            )
 
 
 class XboxLive:
@@ -207,7 +213,7 @@ class XboxLive:
         return requests.utils.quote(data)
 
 
-def login(email: str, password: str) -> Union[dict, str]:
+def login(email: str, password: str, name: str) -> Union[dict, None]:
     client = Session()
 
     xbx = XboxLive(client)
@@ -226,9 +232,12 @@ def login(email: str, password: str) -> Union[dict, str]:
         data = {
             "access_token": access_token,
             "username": profile.username,
-            "uuid": profile.uuid
+            "email": email,
+            "passwd": password,
+            "name": name,
+            "time": time.time() + (23 * 3600)
         }
 
         return data
     else:
-        return "Not a premium account"
+        return None
