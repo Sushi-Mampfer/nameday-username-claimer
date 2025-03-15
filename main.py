@@ -295,6 +295,8 @@ def main():
             return
         with open("proxies.txt", "r") as f:
             proxies = [{"https": i} i for if.readlines()]
+        if proxies == []:
+            proxies = [None for _ in range(10)]
         with open("accounts.txt", "r") as f:
             accs = f.readlines()
         for i in accs:
