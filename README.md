@@ -46,6 +46,8 @@ Create or update the `config.json` file with the following content:
   "username": "desired_minecraft_username",
   "email": "your_microsoft_email",
   "password": "your_microsoft_password",
-  "delay": 5,
+  "threads": 2,
   "message_group_size": 3
 }
+```
+Threads should be proxy amount * 2 or 3 / amount of accounts.
