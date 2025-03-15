@@ -5,12 +5,14 @@ import json
 from datetime import datetime
 from typing import Dict, Any, Callable
 from MsAuth import login
+kmoort threading
+
+proxies = []
 
 # Constants
 CONFIG_FILE = "config.json"
 MOJANG_API_BASE = "https://api.mojang.com"
 MINECRAFT_API_BASE = "https://api.minecraftservices.com"
-DEFAULT_DELAY = 30
 DEFAULT_MESSAGE_GROUP_SIZE = 3
 
 # Type aliases
@@ -38,47 +40,32 @@ def debug_log(message: str, level: str = "INFO"):
     print(f"{color}{timestamp} {level}: {message}{RESET}")
 
 class MinecraftSniper:
-    def __init__(self, config: ConfigType):
+    def __init__(self, config: ConfigType, account):
         self.webhook_url = config["webhook_url"]
         self.user_id = config["user_id"]
-        self.username = config["username"]
-        self.email = config["email"]
-        self.password = config["password"]
-        self.delay = config.get("delay", DEFAULT_DELAY)
+        self.username = account.split(":")[2]
+        self.email = account.split(":")[0]
+        self.password = account.split(":")[1]
+        self.threads = config.get["threads"]
         self.message_group_size = config.get("message_group_size", DEFAULT_MESSAGE_GROUP_SIZE)
         
         # Bearer token and timing
         self.access_token = None
+        self.user = None
+        self.uuid = None
         self.last_auth_time = 0.0
         # Refresh the bearer token every 12 hours (43200 seconds)
         self.token_refresh_interval = 12 * 60 * 60
 
         self.batch_logs = []
 
-        print(
-            f" _____                                                _____ \n"
-            f"( ___ )                                              ( ___ )\n"
-            f" |   |~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~|   | \n"
-            f" |   |{PINK}  ,---.          ,--.       ,--. ,---.          {RESET}|   | \n"
-            f" |   |{PINK} '   .-' ,--,--, `--' ,---. `--'/  .-',--. ,--. {RESET}|   | \n"
-            f" |   |{PINK} `.  `-. |      \\,--.| .-. |,--.|  `-, \\  '  /  {RESET}|   | \n"
-            f" |   |{PINK} .-'    ||  ||  ||  || '-' '|  ||  .-'  \\   '   {RESET}|   | \n"
-            f" |   |{PINK} `-----' `--''--'`--'|  |-' `--'`--'  .-'  /    {RESET}|   | \n"
-            f" |   |{PINK}                     `--'             `---'     {RESET}|   | \n"
-            f" |___|~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~|___| \n"
-            f"(_____)                                              (_____)\n"
-            f"{YELLOW}THIS CLAIMER IS ONLY FOR WHEN UNMIGRATED ACCOUNTS GET DELETED!{RESET}\n"
-            f"The Minecraft Sniper script has started running!\n"
-            f"Target Username: {self.username}\n"
-            f"Delay between checks: {self.delay} seconds"
-        )
+        print(f"Targeting Username: {self.username}\n")
         debug_log("The Minecraft Sniper script has started running!", "SUCCESS")
         debug_log(f"Target Username: {self.username}", "INFO")
-        debug_log(f"Delay between checks: {self.delay} seconds", "INFO")
         self.send_discord_notification(
             embed=self.generate_embed(
                 title="Script Started",
-                description=f"Target Username: `{self.username}`\nDelay: `{self.delay} seconds`",
+                description=f"Target Username: `{self.username}`",
                 color=0x6a0dad
             )
         )
@@ -130,18 +117,19 @@ class MinecraftSniper:
             embed["timestamp"] = datetime.now().isoformat()
         return embed
 
-    def check_username_availability(self) -> str:
-        url = f"{MOJANG_API_BASE}/users/profiles/minecraft/{self.username}"
-
+    def check_username_availability(self):
+        global proxies
+        proxy = proxies.pop(0)
+        proxies.append(proxy)
         try:
-            response = requests.get(url)
-            status_map = {
-                429: "ratelimited",
-                204: "available",
-                404: "available",
-                200: "taken"
-            }
-            return status_map.get(response.status_code, "error")
+            response = requests.get(f"https://api.mojang.com/user/profile/{self.uuid}", proxies=proxy)
+            if res.status_code == 204:
+                return True
+            elif res.status_code == 200:
+                if res.json()["name"] != name:
+                    return True
+             else:
+                return False
         except requests.RequestException:
             return "error"
 
@@ -155,10 +143,11 @@ class MinecraftSniper:
         if not force and self.access_token and (time.time() - self.last_auth_time < self.token_refresh_interval):
             return True
 
-        auth_result = login(self.email, self.password)
+        auth_result = login(self.email, self.password, self.username)
 
         if isinstance(auth_result, dict) and 'access_token' in auth_result:
             self.access_token = auth_result['access_token']
+            self.user = auth_result["username"]
             self.last_auth_time = time.time()  # Record time of successful auth
             embed = self.generate_embed(
                 title="Authentication Success",
@@ -184,6 +173,9 @@ class MinecraftSniper:
         return False
 
     def claim_username(self) -> None:
+        global proxies
+        proxy = proxies.pop(0)
+        proxies.append(proxy)
         if not self.access_token:
             debug_log("Cannot claim username without authentication.", "ERROR")
             return
@@ -206,7 +198,10 @@ class MinecraftSniper:
         }
 
         try:
-            response = requests.put(url, headers=headers)
+            if self.user:
+                response = requests.put(url, headers=headers, proxies=proxy)
+            else:
+                response = requests.post("https://api.minecraftservices.com/minecraft/profile", json={"profileName": self.username}, headers=headers, proxies=proxy)
             status = status_messages.get(response.status_code, "Unexpected error")
 
             embed = self.generate_embed(
@@ -259,55 +254,54 @@ class MinecraftSniper:
             0xffa500
         )
 
-    def handle_ratelimited(self, timestamp: str) -> bool:
-        return self._handle_status(
-            timestamp,
-            "Rate limited by Mojang API. Please wait.",
-            "WARNING",
-            0xffa500
-        )
-
-    def handle_error(self, timestamp: str) -> bool:
-        return self._handle_status(
-            timestamp,
-            "Error checking username.",
-            "ERROR",
-            0xff0000
-        )
-
     def run(self) -> None:
         while True:
             if (not self.access_token) or (time.time() - self.last_auth_time > self.token_refresh_interval):
                 debug_log("Re-authenticating because the token is missing or older than 12 hours.", "INFO")
                 if not self.authenticate_account(force=True):
-                    time.sleep(self.delay)
                     continue
 
-            timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-            status = self.check_username_availability()
-
-            status_handlers: Dict[str, StatusHandler] = {
-                "ratelimited": lambda: self.handle_ratelimited(timestamp),
-                "error": lambda: self.handle_error(timestamp),
-                "available": lambda: self.claim_username(),
-                "taken": lambda: self.handle_taken_username(timestamp)
-            }
-
-            status_handlers[status]()
-
-            time.sleep(self.delay)
+            if self.check_username_availability():
+                self.claim_username()
+                return
+            
+    def start(self):
+        self.uuid = requests.get(f"https://api.mojang.com/users/profiles/minecraft/{self.username}").json()["id"]
+        for _ in range(self.threads):
+            threading.Thread(target=self.start).start()
 
 def main():
+    global proxies
+    print(
+        f" _____                                                _____ \n"
+        f"( ___ )                                              ( ___ )\n"
+        f" |   |~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~|   | \n"
+        f" |   |{PINK}  ,---.          ,--.       ,--. ,---.          {RESET}|   | \n"
+        f" |   |{PINK} '   .-' ,--,--, `--' ,---. `--'/  .-',--. ,--. {RESET}|   | \n"
+        f" |   |{PINK} `.  `-. |      \\,--.| .-. |,--.|  `-, \\  '  /  {RESET}|   | \n"
+        f" |   |{PINK} .-'    ||  ||  ||  || '-' '|  ||  .-'  \\   '   {RESET}|   | \n"
+        f" |   |{PINK} `-----' `--''--'`--'|  |-' `--'`--'  .-'  /    {RESET}|   | \n"
+        f" |   |{PINK}                     `--'             `---'     {RESET}|   | \n"
+        f" |___|~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~|___| \n"
+        f"(_____)                                              (_____)\n"
+        f"{YELLOW}THIS CLAIMER IS ONLY FOR WHEN UNMIGRATED ACCOUNTS GET DELETED!{RESET}\n"
+    )
     try:
         config = MinecraftSniper.load_config()
-        required_keys = ["webhook_url", "user_id", "username", "email", "password"]
+        required_keys = ["webhook_url", "user_id"]
 
         if not all(key in config for key in required_keys):
             debug_log(f"Error: Missing required configuration in {CONFIG_FILE}", "ERROR")
             return
-
-        sniper = MinecraftSniper(config)
-        sniper.run()
+        with open("proxies.txt", "r") as f:
+            proxies = [{"https": i} i for if.readlines()]
+        with open("accounts.txt", "r") as f:
+            accs = f.readlines()
+        for i in accs:
+            sniper = MinecraftSniper(config, i)
+            sniper.start()
+        while True:
+            continue
     except Exception as e:
         debug_log(f"Fatal error: {e}", "ERROR")
 
